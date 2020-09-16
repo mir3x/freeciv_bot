@@ -126,6 +126,7 @@ def process_packet(pkt):
     
     return ret
 
+# splits jumbo packet to single packets
 def process_jumbo(jumbo):
     f = io.BytesIO(jumbo)
 
@@ -164,7 +165,7 @@ def recvall(sock, length, xdecompres):
         #print("decompressed :{}".format(len(rep)))
     return rep
 
-
+# gets whole packet with given size or jumbo packet
 def get_block(sock):
     
     decompr = False
@@ -194,27 +195,33 @@ def get_block(sock):
     blocks.append(y)
     return b''.join(blocks)
 
+# sends packet to server
 def put_block(sock, message):
     block_length = len(message)
     sock.send(header_struct.pack(block_length))
     sock.send(message)
 
+# packet header with size of packet (except jumbo packet)
 def get_header(sock):
     header = sock.recv(2)
     x = struct.unpack('!H', header)
     return x[0]
 
+# new packet without header
 def get_message(sock, len):
     sock.recv(len - 2)
 
+# replies to server ping
 def send_pong(sock):
     sock.sendall(put_size(pack_8bit([0, 0 , PONG,])))
 
+# sends password to server
 def send_auth(sock, password):
     auth = pack_8bit([0, 0 , AUTH_REP , 1]) + bytes(password, 'ascii') + nullbyte()
     print("Sending password")
     sock.sendall(put_size(auth))
 
+# client attributes depending on server version
 def ser_version(ver):
     return {
         20: VERSION_20,
@@ -235,6 +242,7 @@ def nullbyte():
     null = 0
     return null.to_bytes(1,'big')
 
+# sets packet size in first 2 bytes
 def put_size(packet):
     p = len(packet).to_bytes(2, 'big') + packet[2:]
     return p
@@ -247,7 +255,9 @@ def freeciv_bot(hostname, port, botname, version, password):
 
     try:
         name = bytes(botname, 'ascii')
-        freeciv = bytes(ser_version(version), 'ascii')        
+        freeciv = bytes(ser_version(version), 'ascii')  
+        # first 2 bytes are size of packet
+        # 2,6,2 is just client version, works on any server      
         packer = pack_8bit([0, 0, PJOIN_REQ]) + name + nullbyte() + freeciv + nullbyte() + nullbyte() + pack_32bit([2,6,2])
     
         #send name to server
@@ -262,6 +272,7 @@ def freeciv_bot(hostname, port, botname, version, password):
             if not block:
                 break
             pong = process_jumbo(block)
+            # jumbo is multipacket and coudl be many repsonses needed
             for rats in pong:
                 if rats == PONG:
                     send_pong(sock)
