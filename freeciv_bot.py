@@ -21,6 +21,12 @@ JOIN_REPLY = 5
 AUTH_REP = 7
 PING = 88
 PONG = 89
+BEGIN_TURN = 128
+TIMEOUT_INFO = 244
+GAME_INFO = 16
+PAGE_MSG = 110
+PAGE_MSG_PART = 248
+
 JUMBO_SIZE = 65535
 COMPRESSION_BORDER = 16*1024+1
 JUMBO_BORDER = 64*1024-COMPRESSION_BORDER-1
@@ -36,6 +42,9 @@ frame_struct = struct.Struct('!HBB')
 processing_started = struct.Struct('!c')
 join_reply_struct = struct.Struct('!BsssI')
 bool_struct = struct.Struct('!B')
+int_struct = struct.Struct('!I')
+float_struct = struct.Struct('!f')
+double_struct = struct.Struct('!d')
 char_struct = struct.Struct('!s')
 
 def unpack_bool(fbytes):
@@ -52,6 +61,24 @@ def unpack_string(fbytes):
       if by == b'\x00':
         break        
     return b''.join(blocks).decode('ascii')
+
+
+# freeciv float is int/100, lol
+def unpack_float(fbytes):
+    bbumbo = fbytes.read(4)
+    (by, ) = int_struct.unpack(bbumbo)
+    by = by/100
+    return by
+
+def unpack_double(fbytes):
+    bbumbo = fbytes.read(8)
+    (by, ) = double_struct.unpack(bbumbo)
+    return by
+
+def unpack_int(fbytes):
+    bbumbo = fbytes.read(4)
+    (by, ) = struct.unpack('i', bbumbo)
+    return by
 
 def process_packet(pkt):
     f = io.BytesIO(pkt)
@@ -78,12 +105,24 @@ def process_packet(pkt):
         #remove colors
         #s = re.sub(r'\[[^)]*\]', "",s)
         print("{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s))
-    # if pkt_type == 116:
-    #     print("PACKET CONN PING INFO")
-    if pkt_type == 244:
-        print("TIMEOUT INFO")
+    if pkt_type == TIMEOUT_INFO:
+        x = f.read(1)
+        if x == b'\x03':
+            r = unpack_float(f)
+            print("TIMEOUT INFO", r)
     if pkt_type == PING:
         ret = PONG
+    if pkt_type == BEGIN_TURN:
+        print("New turn")
+    if pkt_type == PAGE_MSG:
+        f.read(1)
+        print("*** REPORT ***")
+        print(unpack_string(f))
+        print(unpack_string(f))
+    if pkt_type == PAGE_MSG_PART:
+        f.read(1)
+        print(unpack_string(f))
+        
     
     return ret
 
