@@ -12,11 +12,14 @@ import array
 import zlib
 import io
 import re
+import asyncio
+import threading
 from argparse import ArgumentParser
 from datetime import datetime
 
 PJOIN_REQ = 4
 PSTART = 0
+JOINED = 333
 JOIN_REPLY = 5
 AUTH_REP = 7
 PING = 88
@@ -26,6 +29,7 @@ TIMEOUT_INFO = 244
 GAME_INFO = 16
 PAGE_MSG = 110
 PAGE_MSG_PART = 248
+SEND_CHAT = 26
 
 JUMBO_SIZE = 65535
 COMPRESSION_BORDER = 16*1024+1
@@ -46,6 +50,10 @@ int_struct = struct.Struct('!I')
 float_struct = struct.Struct('!f')
 double_struct = struct.Struct('!d')
 char_struct = struct.Struct('!s')
+
+to_discord = []
+
+send_from_now = False
 
 def unpack_bool(fbytes):
     bbumbo = fbytes.read(1)
@@ -82,7 +90,8 @@ def unpack_int(fbytes):
 
 def process_packet(pkt):
     f = io.BytesIO(pkt)
-    
+    global send_from_now
+    global to_discord
     bumbo = f.read(3)
 
     (plen, pkt_type,) = prelogin_struct.unpack(bumbo)
@@ -93,6 +102,7 @@ def process_packet(pkt):
         if unpack_bool(f) == 0:
           print("Cannot join to server")
         print("LOGIN MESSAGE: ", unpack_string(f))
+        ret = JOINED
     if pkt_type == 6:
         print("AUTH REQ")
         ret = 6
@@ -104,7 +114,12 @@ def process_packet(pkt):
         s = unpack_string(f)
         #remove colors
         #s = re.sub(r'\[[^)]*\]', "",s)
-        print("{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s))
+        msg = "{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s)
+        print(msg)
+        #cos zjebane z niektorymi stringami ?
+        #if serv is running
+        if (send_from_now):
+            to_discord.append(msg)
     if pkt_type == TIMEOUT_INFO:
         x = f.read(1)
         if x == b'\x03':
@@ -247,12 +262,19 @@ def put_size(packet):
     p = len(packet).to_bytes(2, 'big') + packet[2:]
     return p
 
+def send_chat_msg(sock, message):
+    msg = pack_8bit([0, 0, SEND_CHAT, 1]) + bytes(message, 'ascii') + nullbyte()
+    sock.sendall(put_size(msg))
+
+
 def freeciv_bot(hostname, port, botname, version, password):
     server_address = (hostname, port)
+    global sock
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print('connecting to {} port {}'.format(*server_address))
     sock.connect(server_address)
-
+    
+    global send_from_now
     try:
         name = bytes(botname, 'ascii')
         freeciv = bytes(ser_version(version), 'ascii')  
@@ -272,19 +294,82 @@ def freeciv_bot(hostname, port, botname, version, password):
             if not block:
                 break
             pong = process_jumbo(block)
-            # jumbo is multipacket and coudl be many repsonses needed
+            # jumbo is multipacket and could be many responses needed
             for rats in pong:
                 if rats == PONG:
                     send_pong(sock)
+                if rats == JOINED:
+                    send_chat_msg(sock, "/detach")
+                    
                 if rats == 6:
                     send_auth(sock, password)
-           
+            if (r > 3):
+                send_from_now = True
             r = r + 1
     
     finally:
         print('closing socket')
         sock.close()
         
+
+async def tcp_discord_send(message, once):
+    global to_discord
+    global sock
+    global send_from_now
+    global discord_id
+    print('**********************************')
+    while(True):
+        try:
+            reader, writer = await asyncio.open_connection(
+                '127.0.0.1', 9999)
+
+            if len(to_discord):
+                msg = (discord_id + to_discord.pop(0)).encode()
+                print("ENCODED MSG:", msg)
+                writer.write(msg)
+                await writer.drain()
+            else:
+                writer.write(discord_id.encode())
+                await writer.drain()
+            
+            data = await reader.read(1024)
+            if data != b'\x00' and data != discord_id:
+                print(data)
+                print(bytes(data))
+                discord_request = data.decode('utf-8')
+                if send_from_now and discord_request != b'\x00' and len(discord_request)> 1:
+                    discord_request = discord_request.lstrip()
+                    send_chat_msg(sock, discord_request)
+
+            writer.close()
+            await asyncio.sleep(1)
+            if (once):
+                break
+
+        except:
+            print('Lost conn or exception or something worse :D')
+            writer.close()
+            if (once):
+                break
+            await asyncio.sleep(1)
+
+
+
+def loop_in_thread(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(tcp_discord_send('', False))
+  
+def run_forest(hostname, port, botname, version, password, discordID):
+    global discord_id
+    global send_from_now
+    send_from_now = False
+    loop = asyncio.get_event_loop()
+    t = threading.Thread(target=loop_in_thread, args=(loop,))
+    t.start()
+    discord_id = discordID
+    discord_id = discord_id + "::"
+    freeciv_bot(hostname, port, botname, version, password)
+
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Freeciv Bot')
@@ -298,5 +383,7 @@ if __name__ == '__main__':
                          help='Password (default: %(default)s)')
     parser.add_argument('-ver', type=int, metavar='server version', default=26,
                         help='Server version - 20 or 25 or 26 (default: %(default)s)')
+    parser.add_argument('-discordID', type=str, metavar='discordID',nargs='?', default='lt55',
+                        help='Password (default: %(default)s)')
     args = parser.parse_args()
-    freeciv_bot(args.hostname, args.p, args.n, args.ver, args.password)
+    run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID)
