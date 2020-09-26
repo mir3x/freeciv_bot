@@ -14,6 +14,7 @@ import io
 import re
 import asyncio
 import threading
+import time
 from argparse import ArgumentParser
 from datetime import datetime
 
@@ -54,7 +55,7 @@ double_struct = struct.Struct('!d')
 char_struct = struct.Struct('!s')
 
 to_discord = []
-
+timer = 0
 send_from_now = False
 
 def unpack_bool(fbytes):
@@ -179,6 +180,7 @@ def process_jumbo(jumbo):
 
 def recvall(sock, length, xdecompres):
     blocks = []
+
     while length:
         block = sock.recv(length)
         # print('block', block)
@@ -283,12 +285,12 @@ def send_chat_msg(sock, message):
 
 def freeciv_bot(hostname, port, botname, version, password):
     server_address = (hostname, port)
-    global sock
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    global sock_d
+    sock_d = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print('connecting to {} port {}'.format(*server_address))
-    sock.connect(server_address)
-
+    sock_d.connect(server_address)
     global send_from_now
+
     try:
         name = bytes(botname, 'ascii')
         freeciv = bytes(ser_version(version), 'ascii')
@@ -297,12 +299,12 @@ def freeciv_bot(hostname, port, botname, version, password):
         packer = pack_8bit([0, 0, PJOIN_REQ]) + name + nullbyte() + freeciv + nullbyte() + nullbyte() + pack_32bit([2,6,2])
 
         #send name to server
-        sock.sendall(put_size(packer))
+        sock_d.sendall(put_size(packer))
         r = 0
         while True:
             pong = 0
             #print("NR -------------------------------------:", r)
-            block = get_block(sock)
+            block = get_block(sock_d)
             #print('Block says:'," ".join(["{:02}".format(x) for x in block]))
             #print('Block says:', block.decode('ascii', 'ignore'))
             if not block:
@@ -311,17 +313,17 @@ def freeciv_bot(hostname, port, botname, version, password):
             # jumbo is multipacket and could be many responses needed
             for rats in pong:
                 if rats == PONG:
-                    send_pong(sock)
+                    send_pong(sock_d)
                 if rats == JOINED:
-                    send_chat_msg(sock, "/detach")
+                    send_chat_msg(sock_d, "/detach")
                 if rats == 6:
-                    send_auth(sock, password)
+                    send_auth(sock_d, password)
             if (r > 3):
                 send_from_now = True
             r = r + 1
     finally:
         print('closing socket')
-        sock.close()
+        sock_d.close()
 
 async def sleeping_dog():
     while True:
@@ -329,7 +331,7 @@ async def sleeping_dog():
 
 async def tcp_discord_send(message, once):
     global to_discord
-    global sock
+    global sock_d
     global send_from_now
     global discord_id
 
@@ -356,7 +358,7 @@ async def tcp_discord_send(message, once):
                 discord_request = data.decode('utf-8')
                 if send_from_now and discord_request != b'\x00' and len(discord_request)> 1:
                     discord_request = discord_request.lstrip()
-                    send_chat_msg(sock, discord_request)
+                    send_chat_msg(sock_d, discord_request)
 
             writer.close()
             await asyncio.sleep(1)
@@ -378,17 +380,36 @@ def loop_in_thread(loop):
     loop.run_until_complete(tcp_discord_send('', False))
 
 
-async def discord():
+async def discord(discordID):
     global discord_id
     if (discordID != ""):
         discord_id = discordID
         discord_id = discord_id + "::"
         tcp_discord_send('', False)
 
-async def run_forest(hostname, port, botname, version, password, discordID):
+async def tc_timer():
+    while True:
+        print("xx")
+        s = time.perf_counter()
+        await asyncio.sleep(1)
+
+def thread_function(discordID):
+    #loop = asyncio.get_running_loop()
+    #loop.call_soon(tc_timer())
+    #await asyncio.gather(tc_timer(), discord(discordID))
+    loop = asyncio.get_event_loop()
+    tasks = list()
+
+    tasks.append(asyncio.create_task(tc_timer))
+    loop.close()
+
+def run_forest(hostname, port, botname, version, password, discordID):
     global send_from_now
     send_from_now = False
-    await asyncio.gather(freeciv_bot(hostname, port, botname, version, password), discord())
+    x = threading.Thread(target=thread_function, args=(discordID,))
+    x.start()
+    freeciv_bot(hostname, port, botname, version, password)
+
 
 
 if __name__ == '__main__':
@@ -406,4 +427,4 @@ if __name__ == '__main__':
     parser.add_argument('-discordID', type=str, metavar='discordID',nargs='?', default='',
                         help='Password (default: %(default)s)')
     args = parser.parse_args()
-    asyncio.run(run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID))
+    run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID)
