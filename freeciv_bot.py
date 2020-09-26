@@ -57,6 +57,7 @@ char_struct = struct.Struct('!s')
 to_discord = []
 timer = 0
 send_from_now = False
+timer_started = -1
 
 def unpack_bool(fbytes):
     bbumbo = fbytes.read(1)
@@ -97,6 +98,7 @@ def process_packet(pkt):
     f = io.BytesIO(pkt)
     global send_from_now
     global to_discord
+    global timer_started
     bumbo = f.read(3)
 
     (plen, pkt_type,) = prelogin_struct.unpack(bumbo)
@@ -130,7 +132,8 @@ def process_packet(pkt):
         if x == b'\x03':
             r = unpack_float(f)
             to_discord.append(r)
-            print("TIMEOUT INFO", r)
+            print("TIMEOUT INFO", int(r))
+            timer_started = time.perf_counter() + int(r)
     if pkt_type == PING:
         ret = PONG
     if pkt_type == BEGIN_TURN:
@@ -388,29 +391,27 @@ async def discord(discordID):
         tcp_discord_send('', False)
 
 async def tc_timer():
+    global timer_started
     while True:
-        print("xx")
         s = time.perf_counter()
+        x = timer_started - s
+        x = int(x)
+        if x > 0 and x % 15 == 0:
+            print("Time to new turn", int(x))
         await asyncio.sleep(1)
 
-def thread_function(discordID):
-    #loop = asyncio.get_running_loop()
-    #loop.call_soon(tc_timer())
-    #await asyncio.gather(tc_timer(), discord(discordID))
-    loop = asyncio.get_event_loop()
-    tasks = list()
-
-    tasks.append(asyncio.create_task(tc_timer))
+def thread_function(discordID, loop):
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(tc_timer())
     loop.close()
 
 def run_forest(hostname, port, botname, version, password, discordID):
     global send_from_now
     send_from_now = False
-    x = threading.Thread(target=thread_function, args=(discordID,))
+    loop = asyncio.get_event_loop()
+    x = threading.Thread(target=thread_function, args=(discordID,loop))
     x.start()
     freeciv_bot(hostname, port, botname, version, password)
-
-
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Freeciv Bot')
