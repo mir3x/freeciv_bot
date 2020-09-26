@@ -34,6 +34,8 @@ SEND_CHAT = 26
 JUMBO_SIZE = 65535
 COMPRESSION_BORDER = 16*1024+1
 JUMBO_BORDER = 64*1024-COMPRESSION_BORDER-1
+JUMBO_LEN = 4
+HEADER_LEN = 2
 
 VERSION_20 = '+2.0 conn_ping_info username_info new_hack ReportFreezeFix AttrSerialFix extroutes extgameinfo exttechleakage voteinfo extglobalinfo+'
 VERSION_25 = '+Freeciv-2.5-network nationset_change tech_cost split_reports extended_move_rate illness_ranges nonnatdef cheaper_small_wonders+'
@@ -67,7 +69,7 @@ def unpack_string(fbytes):
       (by, ) = char_struct.unpack(bbumbo)
       blocks.append(by)
       if by == b'\x00':
-        break        
+        break
     return b''.join(blocks).decode('ascii')
 
 
@@ -97,7 +99,7 @@ def process_packet(pkt):
     (plen, pkt_type,) = prelogin_struct.unpack(bumbo)
 
     ret = 0
-    
+
     if pkt_type == JOIN_REPLY:
         if unpack_bool(f) == 0:
           print("Cannot join to server")
@@ -116,29 +118,34 @@ def process_packet(pkt):
         #s = re.sub(r'\[[^)]*\]', "",s)
         msg = "{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s)
         print(msg)
-        #cos zjebane z niektorymi stringami ?
-        #if serv is running
         if (send_from_now):
             to_discord.append(msg)
     if pkt_type == TIMEOUT_INFO:
         x = f.read(1)
         if x == b'\x03':
             r = unpack_float(f)
+            to_discord.append(r)
             print("TIMEOUT INFO", r)
     if pkt_type == PING:
         ret = PONG
     if pkt_type == BEGIN_TURN:
+        to_discord.append("New turn")
         print("New turn")
     if pkt_type == PAGE_MSG:
         f.read(1)
-        print("*** REPORT ***")
-        print(unpack_string(f))
-        print(unpack_string(f))
+        r = "*** REPORT ***"
+        print(r)
+        to_discord.append(r)
+        r = unpack_string(f);
+        to_discord.append(r)
+        print(r)
+        r = unpack_string(f);
+        to_discord.append(r)
+        print(r)
     if pkt_type == PAGE_MSG_PART:
         f.read(1)
         print(unpack_string(f))
-        
-    
+
     return ret
 
 # splits jumbo packet to single packets
@@ -157,9 +164,7 @@ def process_jumbo(jumbo):
         r = f.read(lenx - 3)
         blocks.append(r)
         rrrr = b''.join(blocks)
-        #print("SENDING TO PROCESS", " ".join(["{:02}".format(x) for x in rrrr]))
         rets.append(process_packet(rrrr))
-        #f.seek(lenx, 1)
         x += 1
     return rets
 
@@ -182,11 +187,11 @@ def recvall(sock, length, xdecompres):
 
 # gets whole packet with given size or jumbo packet
 def get_block(sock):
-    
+
     decompr = False
     is_jumbo = False
     blocks = []
-    
+
     data = recvall(sock, header_struct.size, False)
     (block_length,) = header_struct.unpack(data)
     bl = block_length
@@ -194,19 +199,19 @@ def get_block(sock):
     # print("HSZ data", data)
     if (block_length != JUMBO_SIZE) and (block_length < COMPRESSION_BORDER):
         blocks.append(data)
-    
+
     if block_length == JUMBO_SIZE:
         is_jumbo = True
         data = recvall(sock, jumbo_struct.size, False)
         (bl,) = jumbo_struct.unpack(data)
-        bl = bl - 4
+        bl = bl - JUMBO_LEN
         decompr = True
     elif block_length >=COMPRESSION_BORDER:
         decompr = True
         #data = recvall(sock, header_struct.size, False)
         bl = bl - COMPRESSION_BORDER
     block_length = bl
-    y = recvall(sock, block_length - 2, decompr)
+    y = recvall(sock, block_length - HEADER_LEN, decompr)
     blocks.append(y)
     return b''.join(blocks)
 
@@ -273,15 +278,15 @@ def freeciv_bot(hostname, port, botname, version, password):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print('connecting to {} port {}'.format(*server_address))
     sock.connect(server_address)
-    
+
     global send_from_now
     try:
         name = bytes(botname, 'ascii')
-        freeciv = bytes(ser_version(version), 'ascii')  
+        freeciv = bytes(ser_version(version), 'ascii')
         # first 2 bytes are size of packet
-        # 2,6,2 is just client version, works on any server      
+        # 2,6,2 is just client version, works on any server
         packer = pack_8bit([0, 0, PJOIN_REQ]) + name + nullbyte() + freeciv + nullbyte() + nullbyte() + pack_32bit([2,6,2])
-    
+
         #send name to server
         sock.sendall(put_size(packer))
         r = 0
@@ -289,8 +294,8 @@ def freeciv_bot(hostname, port, botname, version, password):
             pong = 0
             #print("NR -------------------------------------:", r)
             block = get_block(sock)
-            #print('Block says:'," ".join(["{:02}".format(x) for x in block]))  
-            #print('Block says:', block.decode('ascii', 'ignore'))      
+            #print('Block says:'," ".join(["{:02}".format(x) for x in block]))
+            #print('Block says:', block.decode('ascii', 'ignore'))
             if not block:
                 break
             pong = process_jumbo(block)
@@ -300,25 +305,27 @@ def freeciv_bot(hostname, port, botname, version, password):
                     send_pong(sock)
                 if rats == JOINED:
                     send_chat_msg(sock, "/detach")
-                    
+
                 if rats == 6:
                     send_auth(sock, password)
             if (r > 3):
                 send_from_now = True
             r = r + 1
-    
+
     finally:
         print('closing socket')
         sock.close()
-        
+
 
 async def tcp_discord_send(message, once):
     global to_discord
     global sock
     global send_from_now
     global discord_id
+
     print('**********************************')
     while(True):
+        writer = 0
         try:
             reader, writer = await asyncio.open_connection(
                 '127.0.0.1', 9999)
@@ -331,7 +338,7 @@ async def tcp_discord_send(message, once):
             else:
                 writer.write(discord_id.encode())
                 await writer.drain()
-            
+
             data = await reader.read(1024)
             if data != b'\x00' and data != discord_id:
                 print(data)
@@ -348,7 +355,8 @@ async def tcp_discord_send(message, once):
 
         except:
             print('Lost conn or exception or something worse :D')
-            writer.close()
+            if writer:
+                writer.close()
             if (once):
                 break
             await asyncio.sleep(1)
@@ -358,16 +366,17 @@ async def tcp_discord_send(message, once):
 def loop_in_thread(loop):
     asyncio.set_event_loop(loop)
     loop.run_until_complete(tcp_discord_send('', False))
-  
+
 def run_forest(hostname, port, botname, version, password, discordID):
     global discord_id
     global send_from_now
     send_from_now = False
     loop = asyncio.get_event_loop()
-    t = threading.Thread(target=loop_in_thread, args=(loop,))
-    t.start()
-    discord_id = discordID
-    discord_id = discord_id + "::"
+    if (discordID != ""):
+        t = threading.Thread(target=loop_in_thread, args=(loop,))
+        t.start()
+        discord_id = discordID
+        discord_id = discord_id + "::"
     freeciv_bot(hostname, port, botname, version, password)
 
 
@@ -383,7 +392,7 @@ if __name__ == '__main__':
                          help='Password (default: %(default)s)')
     parser.add_argument('-ver', type=int, metavar='server version', default=26,
                         help='Server version - 20 or 25 or 26 (default: %(default)s)')
-    parser.add_argument('-discordID', type=str, metavar='discordID',nargs='?', default='lt55',
+    parser.add_argument('-discordID', type=str, metavar='discordID',nargs='?', default='',
                         help='Password (default: %(default)s)')
     args = parser.parse_args()
     run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID)
