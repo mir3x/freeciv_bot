@@ -112,14 +112,16 @@ def process_packet(pkt):
         #4 bytes header after postlogin crap?
         if (f.getbuffer().nbytes) > 4:
             f.read(1)
+
         dateTimeObj = datetime.now()
         s = unpack_string(f)
-        #remove colors
-        #s = re.sub(r'\[[^)]*\]', "",s)
-        msg = "{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s)
-        print(msg)
-        if (send_from_now):
-            to_discord.append(msg)
+        if (bytes(s, 'ascii') != b'\x00'):
+            #remove colors
+            #s = re.sub(r'\[[^)]*\]', "",s)
+            msg = "{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s)
+            print(msg)
+            if (send_from_now):
+                to_discord.append(msg)
     if pkt_type == TIMEOUT_INFO:
         x = f.read(1)
         if x == b'\x03':
@@ -305,7 +307,6 @@ def freeciv_bot(hostname, port, botname, version, password):
                     send_pong(sock)
                 if rats == JOINED:
                     send_chat_msg(sock, "/detach")
-
                 if rats == 6:
                     send_auth(sock, password)
             if (r > 3):
