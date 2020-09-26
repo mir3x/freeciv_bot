@@ -57,7 +57,7 @@ char_struct = struct.Struct('!s')
 to_discord = []
 timer = 0
 send_from_now = False
-timer_started = -1
+timer_target = -1
 
 def unpack_bool(fbytes):
     bbumbo = fbytes.read(1)
@@ -98,7 +98,7 @@ def process_packet(pkt):
     f = io.BytesIO(pkt)
     global send_from_now
     global to_discord
-    global timer_started
+    global timer_target
     bumbo = f.read(3)
 
     (plen, pkt_type,) = prelogin_struct.unpack(bumbo)
@@ -133,7 +133,7 @@ def process_packet(pkt):
             r = unpack_float(f)
             to_discord.append(r)
             print("TIMEOUT INFO", int(r))
-            timer_started = time.perf_counter() + int(r)
+            timer_target = time.perf_counter() + int(r)
     if pkt_type == PING:
         ret = PONG
     if pkt_type == BEGIN_TURN:
@@ -393,11 +393,11 @@ async def discord(discordID):
     print("***Ending Discord Thread***")
 
 async def tc_timer():
-    global timer_started
+    global timer_target
     print("***Starting Timer Thread***")
     while True:
         s = time.perf_counter()
-        x = timer_started - s
+        x = timer_target - s
         x = int(x)
         if x > 0 and x % 15 == 0:
             print("Time to new turn", int(x))
