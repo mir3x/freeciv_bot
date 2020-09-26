@@ -385,13 +385,16 @@ def loop_in_thread(loop):
 
 async def discord(discordID):
     global discord_id
+    print("***Starting Discord Thread***")
     if (discordID != ""):
         discord_id = discordID
         discord_id = discord_id + "::"
         tcp_discord_send('', False)
+    print("***Ending Discord Thread***")
 
 async def tc_timer():
     global timer_started
+    print("***Starting Timer Thread***")
     while True:
         s = time.perf_counter()
         x = timer_started - s
@@ -405,12 +408,20 @@ def thread_function(discordID, loop):
     loop.run_until_complete(tc_timer())
     loop.close()
 
+def thread_function2(discordID, loop):
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(discord(discordID))
+    loop.close()
+
 def run_forest(hostname, port, botname, version, password, discordID):
     global send_from_now
     send_from_now = False
     loop = asyncio.get_event_loop()
     x = threading.Thread(target=thread_function, args=(discordID,loop))
     x.start()
+    loop = asyncio.new_event_loop()
+    y = threading.Thread(target=thread_function2, args=(discordID,loop))
+    y.start()
     freeciv_bot(hostname, port, botname, version, password)
 
 if __name__ == '__main__':
