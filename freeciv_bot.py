@@ -66,10 +66,12 @@ def unpack_string(fbytes):
     blocks = []
     while True:
       bbumbo = fbytes.read(1)
+      if bbumbo == b'':
+          break
       (by, ) = char_struct.unpack(bbumbo)
-      blocks.append(by)
-      if by == b'\x00':
+      if by == b'\x00' or by == b'\x03':
         break
+      blocks.append(by)
     return b''.join(blocks).decode('ascii')
 
 
@@ -135,12 +137,17 @@ def process_packet(pkt):
         print("New turn")
     if pkt_type == PAGE_MSG:
         f.read(1)
+        len_left = plen;
         r = "*** REPORT ***"
         print(r)
         to_discord.append(r)
+
         r = unpack_string(f);
         to_discord.append(r)
         print(r)
+        len_left -= len(r)
+        if (len_left < 2):
+            return ret
         r = unpack_string(f);
         to_discord.append(r)
         print(r)
@@ -312,11 +319,13 @@ def freeciv_bot(hostname, port, botname, version, password):
             if (r > 3):
                 send_from_now = True
             r = r + 1
-
     finally:
         print('closing socket')
         sock.close()
 
+async def sleeping_dog():
+    while True:
+        await asyncio.sleep(1)
 
 async def tcp_discord_send(message, once):
     global to_discord
@@ -368,17 +377,18 @@ def loop_in_thread(loop):
     asyncio.set_event_loop(loop)
     loop.run_until_complete(tcp_discord_send('', False))
 
-def run_forest(hostname, port, botname, version, password, discordID):
+
+async def discord():
     global discord_id
-    global send_from_now
-    send_from_now = False
-    loop = asyncio.get_event_loop()
     if (discordID != ""):
-        t = threading.Thread(target=loop_in_thread, args=(loop,))
-        t.start()
         discord_id = discordID
         discord_id = discord_id + "::"
-    freeciv_bot(hostname, port, botname, version, password)
+        tcp_discord_send('', False)
+
+async def run_forest(hostname, port, botname, version, password, discordID):
+    global send_from_now
+    send_from_now = False
+    await asyncio.gather(freeciv_bot(hostname, port, botname, version, password), discord())
 
 
 if __name__ == '__main__':
@@ -396,4 +406,4 @@ if __name__ == '__main__':
     parser.add_argument('-discordID', type=str, metavar='discordID',nargs='?', default='',
                         help='Password (default: %(default)s)')
     args = parser.parse_args()
-    run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID)
+    asyncio.run(run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID))
