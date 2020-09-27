@@ -373,7 +373,8 @@ async def tcp_discord_send(message, once):
                 '127.0.0.1', 9999)
 
             if ricer.discord_len():
-                msg = (discord_id + ricer.pop_discord_message).encode()
+                pmsg = ricer.pop_discord_message()
+                msg = (discord_id + str(pmsg)).encode()
                 print("ENCODED MSG:", msg)
                 writer.write(msg)
                 await writer.drain()
@@ -383,8 +384,6 @@ async def tcp_discord_send(message, once):
 
             data = await reader.read(1024)
             if data != b'\x00' and data != discord_id:
-                print(data)
-                print(bytes(data))
                 discord_request = data.decode('utf-8')
                 if send_from_now and discord_request != b'\x00' and len(discord_request)> 1:
                     discord_request = discord_request.lstrip()
@@ -396,7 +395,8 @@ async def tcp_discord_send(message, once):
                 break
 
         except:
-            print('Lost conn or exception or something worse :D')
+            print("Unexpected error:", sys.exc_info()[0])
+
             if writer:
                 writer.close()
             if (once):
@@ -415,7 +415,7 @@ async def discord(discordID):
     if (discordID != ""):
         discord_id = discordID
         discord_id = discord_id + "::"
-        tcp_discord_send('', False)
+        await tcp_discord_send('', False)
     print("***Ending Discord Thread***")
 
 async def tc_timer():
@@ -441,6 +441,7 @@ def thread_function(discordID, loop):
 
 def thread_function2(discordID, loop):
     asyncio.set_event_loop(loop)
+    print("DISCORD ID")
     loop.run_until_complete(discord(discordID))
     loop.close()
 
