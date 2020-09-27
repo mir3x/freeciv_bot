@@ -54,10 +54,39 @@ float_struct = struct.Struct('!f')
 double_struct = struct.Struct('!d')
 char_struct = struct.Struct('!s')
 
-to_discord = []
-timer = 0
+
 send_from_now = False
-timer_target = -1
+
+class race_db():
+    def __init__(self):
+        self.to_discord = []
+        self.timer_target = -1
+        self._lock = threading.Lock()
+
+    def append_discord_message(self, message):
+        with self._lock:
+            self.to_discord.append(message)
+
+    def pop_discord_message(self):
+        with self._lock:
+            msg = self.to_discord.pop(0)
+            return msg
+
+    def discord_len(self):
+        with self._lock:
+            z = len(self.to_discord)
+            return z
+
+    def get_timer_target(self):
+        with self._lock:
+            x = self.timer_target
+            return x
+
+    def set_timer_target(self, timer):
+        with self._lock:
+            self.timer_target = timer
+
+ricer = race_db()
 
 def unpack_bool(fbytes):
     bbumbo = fbytes.read(1)
@@ -97,8 +126,7 @@ def unpack_int(fbytes):
 def process_packet(pkt):
     f = io.BytesIO(pkt)
     global send_from_now
-    global to_discord
-    global timer_target
+    global ricer
     bumbo = f.read(3)
 
     (plen, pkt_type,) = prelogin_struct.unpack(bumbo)
@@ -126,34 +154,35 @@ def process_packet(pkt):
             msg = "{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s)
             print(msg)
             if (send_from_now):
-                to_discord.append(msg)
+                ricer.append_discord_message(msg)
     if pkt_type == TIMEOUT_INFO:
         x = f.read(1)
         if x == b'\x03':
             r = unpack_float(f)
-            to_discord.append(r)
+            ricer.append_discord_message(r)
             print("TIMEOUT INFO", int(r))
-            timer_target = time.perf_counter() + int(r)
+            timer_t = time.perf_counter() + int(r)
+            ricer.set_timer_target(timer_t)
     if pkt_type == PING:
         ret = PONG
     if pkt_type == BEGIN_TURN:
-        to_discord.append("New turn")
+        ricer.append_discord_message("New turn")
         print("New turn")
     if pkt_type == PAGE_MSG:
         f.read(1)
         len_left = plen;
         r = "*** REPORT ***"
         print(r)
-        to_discord.append(r)
+        ricer.append_discord_message(r)
 
         r = unpack_string(f);
-        to_discord.append(r)
+        ricer.append_discord_message(r)
         print(r)
         len_left -= len(r)
         if (len_left < 2):
             return ret
         r = unpack_string(f);
-        to_discord.append(r)
+        ricer.append_discord_message(r)
         print(r)
     if pkt_type == PAGE_MSG_PART:
         f.read(1)
@@ -333,9 +362,7 @@ async def sleeping_dog():
         await asyncio.sleep(1)
 
 async def tcp_discord_send(message, once):
-    global to_discord
-    global sock_d
-    global send_from_now
+    global ricer
     global discord_id
 
     print('**********************************')
@@ -345,8 +372,8 @@ async def tcp_discord_send(message, once):
             reader, writer = await asyncio.open_connection(
                 '127.0.0.1', 9999)
 
-            if len(to_discord):
-                msg = (discord_id + to_discord.pop(0)).encode()
+            if ricer.discord_len():
+                msg = (discord_id + ricer.pop_discord_message).encode()
                 print("ENCODED MSG:", msg)
                 writer.write(msg)
                 await writer.drain()
@@ -382,7 +409,6 @@ def loop_in_thread(loop):
     asyncio.set_event_loop(loop)
     loop.run_until_complete(tcp_discord_send('', False))
 
-
 async def discord(discordID):
     global discord_id
     print("***Starting Discord Thread***")
@@ -393,14 +419,19 @@ async def discord(discordID):
     print("***Ending Discord Thread***")
 
 async def tc_timer():
-    global timer_target
+    global ricer
     print("***Starting Timer Thread***")
     while True:
         s = time.perf_counter()
-        x = timer_target - s
-        x = int(x)
-        if x > 0 and x % 15 == 0:
-            print("Time to new turn", int(x))
+        x = ricer.get_timer_target()
+        #there might be some big random value when connecting to server when game is not running
+        if (int(x) != -1 and x < 9999999):
+            x = x - s
+            x = int(x)
+            if x > 0 and x % 15 == 0:
+                m = "Time to new turn" + str(int(x))
+                print(m)
+                ricer.append_discord_message(m)
         await asyncio.sleep(1)
 
 def thread_function(discordID, loop):
