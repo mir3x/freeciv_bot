@@ -56,6 +56,7 @@ char_struct = struct.Struct('!s')
 
 
 send_from_now = False
+speak = False
 
 class race_db():
     def __init__(self):
@@ -118,10 +119,46 @@ def unpack_double(fbytes):
     (by, ) = double_struct.unpack(bbumbo)
     return by
 
+
 def unpack_int(fbytes):
     bbumbo = fbytes.read(4)
     (by, ) = struct.unpack('i', bbumbo)
     return by
+
+
+def say_hello(msg):
+    global sock_d
+    msg = msg.rstrip('[/c]')
+    msg = re.sub(r'\[c[^)]*\]', "",msg)
+    msg = re.sub(">", " ", msg)
+    msg = re.sub("<", " ", msg)
+    print(msg)
+    rep = re.search(r"\w+(?=\s*has connected from)",msg)
+    if (rep):
+      m = "Hello " + rep.group() + " !"
+      send_chat_msg(sock_d, m)
+      send_chat_msg(sock_d, "WTF U DOING HERE???")
+    else:
+        print ("WTF SAY HELLO")
+
+
+def try_reply(msg):
+    global speak
+
+    if not speak:
+        return
+
+    if len(msg)< 3:
+        return
+
+    cases = {
+        "has connected from": lambda : say_hello(msg)
+    }
+
+    for k in cases.keys():
+        if re.search(k, msg):
+            return cases.get(k, lambda :"err")()
+
 
 def process_packet(pkt):
     f = io.BytesIO(pkt)
@@ -154,6 +191,7 @@ def process_packet(pkt):
             msg = "{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s)
             print(msg)
             if (send_from_now):
+                try_reply(msg)
                 ricer.append_discord_message(msg)
     if pkt_type == TIMEOUT_INFO:
         x = f.read(1)
@@ -445,9 +483,12 @@ def thread_function2(discordID, loop):
     loop.run_until_complete(discord(discordID))
     loop.close()
 
-def run_forest(hostname, port, botname, version, password, discordID):
+def run_forest(hostname, port, botname, version, password, discordID, spik):
+    global speak
     global send_from_now
+
     send_from_now = False
+    speak = spik
     loop = asyncio.get_event_loop()
     x = threading.Thread(target=thread_function, args=(discordID,loop))
     x.start()
@@ -470,5 +511,7 @@ if __name__ == '__main__':
                         help='Server version - 20 or 25 or 26 (default: %(default)s)')
     parser.add_argument('-discordID', type=str, metavar='discordID',nargs='?', default='',
                         help='Password (default: %(default)s)')
+    parser.add_argument('-speak', type=bool, metavar='speak',nargs='?', default='True',
+                        help='Allow bot to speak (default: %(default)s)')
     args = parser.parse_args()
-    run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID)
+    run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID, args.speak)
