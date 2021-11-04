@@ -58,6 +58,7 @@ char_struct = struct.Struct('!s')
 send_from_now = False
 speak = False
 
+
 class race_db():
     def __init__(self):
         self.to_discord = []
@@ -87,23 +88,26 @@ class race_db():
         with self._lock:
             self.timer_target = timer
 
+
 ricer = race_db()
+
 
 def unpack_bool(fbytes):
     bbumbo = fbytes.read(1)
     (by, ) = bool_struct.unpack(bbumbo)
     return by
 
+
 def unpack_string(fbytes):
     blocks = []
     while True:
-      bbumbo = fbytes.read(1)
-      if bbumbo == b'':
-          break
-      (by, ) = char_struct.unpack(bbumbo)
-      if by == b'\x00' or by == b'\x03':
-        break
-      blocks.append(by)
+        bbumbo = fbytes.read(1)
+        if bbumbo == b'':
+            break
+        (by, ) = char_struct.unpack(bbumbo)
+        if by == b'\x00' or by == b'\x03':
+            break
+        blocks.append(by)
     return b''.join(blocks).decode('ascii')
 
 
@@ -113,6 +117,7 @@ def unpack_float(fbytes):
     (by, ) = int_struct.unpack(bbumbo)
     by = by/100
     return by
+
 
 def unpack_double(fbytes):
     bbumbo = fbytes.read(8)
@@ -129,17 +134,17 @@ def unpack_int(fbytes):
 def say_hello(msg):
     global sock_d
     msg = msg.rstrip('[/c]')
-    msg = re.sub(r'\[c[^)]*\]', "",msg)
+    msg = re.sub(r'\[c[^)]*\]', "", msg)
     msg = re.sub(">", " ", msg)
     msg = re.sub("<", " ", msg)
     print(msg)
-    rep = re.search(r"\w+(?=\s*has connected from)",msg)
+    rep = re.search(r"\w+(?=\s*has connected from)", msg)
     if (rep):
-      m = "Hello " + rep.group() + " !"
-      send_chat_msg(sock_d, m)
-      send_chat_msg(sock_d, "WTF U DOING HERE???")
+        m = "Hello " + rep.group() + " !"
+        send_chat_msg(sock_d, m)
+        send_chat_msg(sock_d, "WTF U DOING HERE???")
     else:
-        print ("WTF SAY HELLO")
+        print("WTF SAY HELLO")
 
 
 def try_reply(msg):
@@ -148,16 +153,16 @@ def try_reply(msg):
     if not speak:
         return
 
-    if len(msg)< 3:
+    if len(msg) < 3:
         return
 
     cases = {
-        "has connected from": lambda : say_hello(msg)
+        "has connected from": lambda: say_hello(msg)
     }
 
     for k in cases.keys():
         if re.search(k, msg):
-            return cases.get(k, lambda :"err")()
+            return cases.get(k, lambda: "err")()
 
 
 def process_packet(pkt):
@@ -172,23 +177,24 @@ def process_packet(pkt):
 
     if pkt_type == JOIN_REPLY:
         if unpack_bool(f) == 0:
-          print("Cannot join to server")
+            print("Cannot join to server")
         print("LOGIN MESSAGE: ", unpack_string(f))
         ret = JOINED
     if pkt_type == 6:
         print("AUTH REQ")
         ret = 6
     if pkt_type == 25:
-        #4 bytes header after postlogin crap?
+        # 4 bytes header after postlogin crap?
         if (f.getbuffer().nbytes) > 4:
             f.read(1)
 
         dateTimeObj = datetime.now()
         s = unpack_string(f)
         if (bytes(s, 'ascii') != b'\x00'):
-            #remove colors
+            # remove colors
             #s = re.sub(r'\[[^)]*\]', "",s)
-            msg = "{}:{}:{} CHAT: {}".format(dateTimeObj.hour,dateTimeObj.minute,dateTimeObj.second,s)
+            msg = "{}:{}:{} CHAT: {}".format(
+                dateTimeObj.hour, dateTimeObj.minute, dateTimeObj.second, s)
             print(msg)
             if (send_from_now):
                 try_reply(msg)
@@ -208,18 +214,18 @@ def process_packet(pkt):
         print("New turn")
     if pkt_type == PAGE_MSG:
         f.read(1)
-        len_left = plen;
+        len_left = plen
         r = "*** REPORT ***"
         print(r)
         ricer.append_discord_message(r)
 
-        r = unpack_string(f);
+        r = unpack_string(f)
         ricer.append_discord_message(r)
         print(r)
         len_left -= len(r)
         if (len_left < 2):
             return ret
-        r = unpack_string(f);
+        r = unpack_string(f)
         ricer.append_discord_message(r)
         print(r)
     if pkt_type == PAGE_MSG_PART:
@@ -229,6 +235,8 @@ def process_packet(pkt):
     return ret
 
 # splits jumbo packet to single packets
+
+
 def process_jumbo(jumbo):
     f = io.BytesIO(jumbo)
 
@@ -238,7 +246,7 @@ def process_jumbo(jumbo):
         blocks = []
         bumbo = f.read(3)
         if bumbo == b'':
-          return rets
+            return rets
         blocks.append(bumbo)
         (lenx, pkt_type,) = prelogin_struct.unpack(bumbo)
         r = f.read(lenx - 3)
@@ -247,6 +255,7 @@ def process_jumbo(jumbo):
         rets.append(process_packet(rrrr))
         x += 1
     return rets
+
 
 def recvall(sock, length, xdecompres):
     blocks = []
@@ -267,6 +276,8 @@ def recvall(sock, length, xdecompres):
     return rep
 
 # gets whole packet with given size or jumbo packet
+
+
 def get_block(sock):
 
     decompr = False
@@ -287,7 +298,7 @@ def get_block(sock):
         (bl,) = jumbo_struct.unpack(data)
         bl = bl - JUMBO_LEN
         decompr = True
-    elif block_length >=COMPRESSION_BORDER:
+    elif block_length >= COMPRESSION_BORDER:
         decompr = True
         #data = recvall(sock, header_struct.size, False)
         bl = bl - COMPRESSION_BORDER
@@ -297,32 +308,45 @@ def get_block(sock):
     return b''.join(blocks)
 
 # sends packet to server
+
+
 def put_block(sock, message):
     block_length = len(message)
     sock.send(header_struct.pack(block_length))
     sock.send(message)
 
 # packet header with size of packet (except jumbo packet)
+
+
 def get_header(sock):
     header = sock.recv(2)
     x = struct.unpack('!H', header)
     return x[0]
 
 # new packet without header
+
+
 def get_message(sock, len):
     sock.recv(len - 2)
 
 # replies to server ping
+
+
 def send_pong(sock):
-    sock.sendall(put_size(pack_8bit([0, 0 , PONG,])))
+    sock.sendall(put_size(pack_8bit([0, 0, PONG, ])))
 
 # sends password to server
+
+
 def send_auth(sock, password):
-    auth = pack_8bit([0, 0 , AUTH_REP , 1]) + bytes(password, 'ascii') + nullbyte()
+    auth = pack_8bit([0, 0, AUTH_REP, 1]) + \
+        bytes(password, 'ascii') + nullbyte()
     print("Sending password")
     sock.sendall(put_size(auth))
 
 # client attributes depending on server version
+
+
 def ser_version(ver):
     return {
         20: VERSION_20,
@@ -330,26 +354,33 @@ def ser_version(ver):
         26: VERSION_26
     }[ver]
 
+
 def pack_8bit(lista):
     r = b''
     for i in lista:
         r = r + i.to_bytes(1, 'big')
     return r
 
+
 def pack_32bit(lista):
     return array.array('i', lista)
 
+
 def nullbyte():
     null = 0
-    return null.to_bytes(1,'big')
+    return null.to_bytes(1, 'big')
 
 # sets packet size in first 2 bytes
+
+
 def put_size(packet):
     p = len(packet).to_bytes(2, 'big') + packet[2:]
     return p
 
+
 def send_chat_msg(sock, message):
-    msg = pack_8bit([0, 0, SEND_CHAT, 1]) + bytes(message, 'ascii') + nullbyte()
+    msg = pack_8bit([0, 0, SEND_CHAT, 1]) + \
+        bytes(message, 'ascii') + nullbyte()
     sock.sendall(put_size(msg))
 
 
@@ -366,9 +397,10 @@ def freeciv_bot(hostname, port, botname, version, password):
         freeciv = bytes(ser_version(version), 'ascii')
         # first 2 bytes are size of packet
         # 2,6,2 is just client version, works on any server
-        packer = pack_8bit([0, 0, PJOIN_REQ]) + name + nullbyte() + freeciv + nullbyte() + nullbyte() + pack_32bit([2,6,2])
+        packer = pack_8bit([0, 0, PJOIN_REQ]) + name + nullbyte() + \
+            freeciv + nullbyte() + nullbyte() + pack_32bit([2, 6, 2])
 
-        #send name to server
+        # send name to server
         sock_d.sendall(put_size(packer))
         r = 0
         while True:
@@ -395,9 +427,11 @@ def freeciv_bot(hostname, port, botname, version, password):
         print('closing socket')
         sock_d.close()
 
+
 async def sleeping_dog():
     while True:
         await asyncio.sleep(1)
+
 
 async def tcp_discord_send(message, once):
     global ricer
@@ -423,7 +457,7 @@ async def tcp_discord_send(message, once):
             data = await reader.read(1024)
             if data != b'\x00' and data != discord_id:
                 discord_request = data.decode('utf-8')
-                if send_from_now and discord_request != b'\x00' and len(discord_request)> 1:
+                if send_from_now and discord_request != b'\x00' and len(discord_request) > 1:
                     discord_request = discord_request.lstrip()
                     send_chat_msg(sock_d, discord_request)
 
@@ -442,10 +476,10 @@ async def tcp_discord_send(message, once):
             await asyncio.sleep(1)
 
 
-
 def loop_in_thread(loop):
     asyncio.set_event_loop(loop)
     loop.run_until_complete(tcp_discord_send('', False))
+
 
 async def discord(discordID):
     global discord_id
@@ -456,13 +490,14 @@ async def discord(discordID):
         await tcp_discord_send('', False)
     print("***Ending Discord Thread***")
 
+
 async def tc_timer():
     global ricer
     print("***Starting Timer Thread***")
     while True:
         s = time.perf_counter()
         x = ricer.get_timer_target()
-        #there might be some big random value when connecting to server when game is not running
+        # there might be some big random value when connecting to server when game is not running
         if (int(x) != -1 and x < 9999999):
             x = x - s
             x = int(x)
@@ -472,16 +507,19 @@ async def tc_timer():
                 ricer.append_discord_message(m)
         await asyncio.sleep(1)
 
+
 def thread_function(discordID, loop):
     asyncio.set_event_loop(loop)
     loop.run_until_complete(tc_timer())
     loop.close()
+
 
 def thread_function2(discordID, loop):
     asyncio.set_event_loop(loop)
     print("DISCORD ID")
     loop.run_until_complete(discord(discordID))
     loop.close()
+
 
 def run_forest(hostname, port, botname, version, password, discordID, spik):
     global speak
@@ -490,28 +528,30 @@ def run_forest(hostname, port, botname, version, password, discordID, spik):
     send_from_now = False
     speak = spik
     loop = asyncio.get_event_loop()
-    x = threading.Thread(target=thread_function, args=(discordID,loop))
+    x = threading.Thread(target=thread_function, args=(discordID, loop))
     x.start()
     loop = asyncio.new_event_loop()
-    y = threading.Thread(target=thread_function2, args=(discordID,loop))
+    y = threading.Thread(target=thread_function2, args=(discordID, loop))
     y.start()
     freeciv_bot(hostname, port, botname, version, password)
+
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Freeciv Bot')
     parser.add_argument('hostname', nargs='?', default='linuxiuvat.de',
-                         help='freeciv server hostname (default: %(default)s)')
+                        help='freeciv server hostname (default: %(default)s)')
     parser.add_argument('-p', type=int, metavar='port', default=5556,
                         help='TCP port number (default: %(default)s)')
-    parser.add_argument('-n', type=str, metavar='botname',nargs='?', default="Python",
-                         help='Bot name (default: %(default)s)')
-    parser.add_argument('-password', type=str, metavar='password',nargs='?', default="",
-                         help='Password (default: %(default)s)')
+    parser.add_argument('-n', type=str, metavar='botname', nargs='?', default="Python",
+                        help='Bot name (default: %(default)s)')
+    parser.add_argument('-password', type=str, metavar='password', nargs='?', default="",
+                        help='Password (default: %(default)s)')
     parser.add_argument('-ver', type=int, metavar='server version', default=26,
                         help='Server version - 20 or 25 or 26 (default: %(default)s)')
-    parser.add_argument('-discordID', type=str, metavar='discordID',nargs='?', default='',
+    parser.add_argument('-discordID', type=str, metavar='discordID', nargs='?', default='',
                         help='Password (default: %(default)s)')
-    parser.add_argument('-speak', type=bool, metavar='speak',nargs='?', default='True',
+    parser.add_argument('-speak', type=bool, metavar='speak', nargs='?', default='True',
                         help='Allow bot to speak (default: %(default)s)')
     args = parser.parse_args()
-    run_forest(args.hostname, args.p, args.n, args.ver, args.password, args.discordID, args.speak)
+    run_forest(args.hostname, args.p, args.n, args.ver,
+               args.password, args.discordID, args.speak)
