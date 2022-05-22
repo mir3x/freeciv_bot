@@ -71,18 +71,15 @@ class race_db():
 
     def pop_discord_message(self):
         with self._lock:
-            msg = self.to_discord.pop(0)
-            return msg
+            return self.to_discord.pop(0)
 
     def discord_len(self):
         with self._lock:
-            z = len(self.to_discord)
-            return z
+            return len(self.to_discord)
 
     def get_timer_target(self):
         with self._lock:
-            x = self.timer_target
-            return x
+            return self.timer_target
 
     def set_timer_target(self, timer):
         with self._lock:
@@ -105,7 +102,7 @@ def unpack_string(fbytes):
         if bbumbo == b'':
             break
         (by, ) = char_struct.unpack(bbumbo)
-        if by == b'\x00' or by == b'\x03':
+        if by in [b'\x00', b'\x03']:
             break
         blocks.append(by)
     return b''.join(blocks).decode('ascii')
@@ -138,9 +135,8 @@ def say_hello(msg):
     msg = re.sub(">", " ", msg)
     msg = re.sub("<", " ", msg)
     print(msg)
-    rep = re.search(r"\w+(?=\s*has connected from)", msg)
-    if (rep):
-        m = "Hello " + rep.group() + " !"
+    if rep := re.search(r"\w+(?=\s*has connected from)", msg):
+        m = f"Hello {rep.group()} !"
         send_chat_msg(sock_d, m)
         send_chat_msg(sock_d, "WTF U DOING HERE???")
     else:
@@ -160,7 +156,7 @@ def try_reply(msg):
         "has connected from": lambda: say_hello(msg)
     }
 
-    for k in cases.keys():
+    for k in cases:
         if re.search(k, msg):
             return cases.get(k, lambda: "err")()
 
@@ -193,8 +189,7 @@ def process_packet(pkt):
         if (bytes(s, 'ascii') != b'\x00'):
             # remove colors
             #s = re.sub(r'\[[^)]*\]', "",s)
-            msg = "{}:{}:{} CHAT: {}".format(
-                dateTimeObj.hour, dateTimeObj.minute, dateTimeObj.second, s)
+            msg = f"{dateTimeObj.hour}:{dateTimeObj.minute}:{dateTimeObj.second} CHAT: {s}"
             print(msg)
             if (send_from_now):
                 try_reply(msg)
@@ -243,11 +238,10 @@ def process_jumbo(jumbo):
     x = 0
     rets = []
     while True:
-        blocks = []
         bumbo = f.read(3)
         if bumbo == b'':
             return rets
-        blocks.append(bumbo)
+        blocks = [bumbo]
         (lenx, pkt_type,) = prelogin_struct.unpack(bumbo)
         r = f.read(lenx - 3)
         blocks.append(r)
@@ -374,8 +368,7 @@ def nullbyte():
 
 
 def put_size(packet):
-    p = len(packet).to_bytes(2, 'big') + packet[2:]
-    return p
+    return len(packet).to_bytes(2, 'big') + packet[2:]
 
 
 def send_chat_msg(sock, message):
@@ -438,7 +431,7 @@ async def tcp_discord_send(message, once):
     global discord_id
 
     print('**********************************')
-    while(True):
+    while True:
         writer = 0
         try:
             reader, writer = await asyncio.open_connection(
@@ -449,13 +442,11 @@ async def tcp_discord_send(message, once):
                 msg = (discord_id + str(pmsg)).encode()
                 print("ENCODED MSG:", msg)
                 writer.write(msg)
-                await writer.drain()
             else:
                 writer.write(discord_id.encode())
-                await writer.drain()
-
+            await writer.drain()
             data = await reader.read(1024)
-            if data != b'\x00' and data != discord_id:
+            if data not in [b'\x00', discord_id]:
                 discord_request = data.decode('utf-8')
                 if send_from_now and discord_request != b'\x00' and len(discord_request) > 1:
                     discord_request = discord_request.lstrip()
@@ -486,7 +477,7 @@ async def discord(discordID):
     print("***Starting Discord Thread***")
     if (discordID != ""):
         discord_id = discordID
-        discord_id = discord_id + "::"
+        discord_id = f"{discord_id}::"
         await tcp_discord_send('', False)
     print("***Ending Discord Thread***")
 
@@ -502,7 +493,7 @@ async def tc_timer():
             x = x - s
             x = int(x)
             if x > 0 and x % 15 == 0:
-                m = "Time to new turn" + str(int(x))
+                m = f"Time to new turn{x}"
                 print(m)
                 ricer.append_discord_message(m)
         await asyncio.sleep(1)
